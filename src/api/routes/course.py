@@ -155,3 +155,9 @@ async def swap_task_ordering(course_id: int, request: SwapTaskOrderingRequest):
         course_id, request.task_1_id, request.task_2_id
     )
     return {"success": True}
+
+@router.get("/{userId}/courses")
+async def get_courses_for_user(userId: int) -> List[Course]:
+    return await get_all_courses_for_user_from_db(userId)
+
+

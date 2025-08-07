@@ -394,6 +394,33 @@ async def get_course_assessments(course_id: int) -> List[Dict]:
     
     return result
 
+from typing import List, Dict
+
+async def get_courses_for_assessment(assessment_id: str) -> List[Dict]:
+    """Get all courses to which a specific assessment has been deployed"""
+    
+    query = f"""
+        SELECT ca.course_id, c.name, ca.position, ca.deployed_at
+        FROM {course_assessments_table_name} ca
+        JOIN {courses_table_name} c ON ca.course_id = c.id
+        WHERE ca.assessment_id = ? AND ca.is_deployed = TRUE
+        ORDER BY ca.position
+    """
+
+    courses = await execute_db_operation(query, (assessment_id,), fetch_all=True)
+
+    result = []
+    for course in courses:
+        result.append({
+            "course_id": course[0],
+            "course_name": course[1],
+            "position": course[2],
+            "deployed_at": course[3]
+        })
+
+    return result
+
+
 async def get_mentor_courses(user_id: int, org_id: int) -> List[Dict]:
     """Get courses where user is a mentor"""
     
@@ -409,3 +436,4 @@ async def get_mentor_courses(user_id: int, org_id: int) -> List[Dict]:
     courses = await execute_db_operation(query, (org_id,), fetch_all=True)
     
     return [{"id": c[0], "name": c[1]} for c in courses]
+

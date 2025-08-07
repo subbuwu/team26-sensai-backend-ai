@@ -16,6 +16,7 @@ from api.db.role_assessment import (
     undeploy_assessment_from_course,
     get_course_assessments,
     get_mentor_courses,
+    get_courses_for_assessment
 )
 from api.db import get_new_db_connection
 
@@ -141,6 +142,7 @@ class UpdateAssessmentRequest(BaseModel):
 class DeployAssessmentRequest(BaseModel):
     assessment_id: str
     course_id: int
+    user_id: int
 
 class AssessmentListItem(BaseModel):
     assessment_id: str
@@ -618,11 +620,11 @@ async def get_course_role_assessments(
         logger.error(f"Error getting course assessments: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get course assessments: {str(e)}")
 
-@router.get("/mentor/courses")
-async def get_mentor_available_courses():
+@router.get("/mentor/{mentor_id}/courses")
+async def get_mentor_available_courses(mentor_id: int):
     """Get courses available for mentor to deploy assessments"""
     
-    current_user = await get_default_user()
+    current_user = await get_default_user(mentor_id)
     
     try:
         courses = await get_mentor_courses(current_user["id"], current_user["org_id"])
@@ -631,6 +633,17 @@ async def get_mentor_available_courses():
     except Exception as e:
         logger.error(f"Error getting mentor courses: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get mentor courses: {str(e)}")
+
+@router.get("/{assessment_id}/courses")
+async def get_assessment_courses(assessment_id: str):
+    """Get all courses to which an assessment has been deployed"""
+    
+    try:
+        courses = await get_courses_for_assessment(assessment_id)
+        return courses
+    except Exception as e:
+        logger.error(f"Error getting assessment courses: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get assessment courses: {str(e)}")
 
 # ============================================================================
 # SIMPLE STATUS ENDPOINT (for frontend compatibility)
@@ -646,3 +659,23 @@ async def get_assessment_status(assessment_id: str):
         "current_step": "Assessment completed",
         "estimated_completion_seconds": 0
     }
+
+
+@router.post("/deploy/")
+async def deploy_assessment(request: DeployAssessmentRequest):
+    """Deploy an assessment"""
+    try:
+        success = await deploy_assessment_to_course(
+            request.assessment_id, 
+            request.course_id, 
+            request.user_id
+        )
+        
+        if not success:
+            return {"message": "Assessment already deployed to this course"}
+        
+        return {"message": "Assessment deployed successfully"}
+        
+    except Exception as e:
+        logger.error(f"Error deploying assessment: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to deploy assessment: {str(e)}")
