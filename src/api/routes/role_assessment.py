@@ -82,9 +82,9 @@ class AssessmentResult(BaseModel):
 # ============================================================================
 
 def generate_mcqs(role: str, skills: List[str], difficulty: str) -> List[MCQuestion]:
-    """Generate 10 multiple choice questions"""
+    """Generate 15 multiple choice questions"""
     
-    prompt = f"""Generate 10 multiple choice questions for a {role} assessment.
+    prompt = f"""Generate 15 multiple choice questions for a {role} assessment.
 
 Skills to test: {', '.join(skills)}
 Difficulty: {difficulty}
@@ -129,7 +129,7 @@ Make questions {difficulty} level - focus on {'basic concepts' if difficulty == 
             content = content.replace('```json', '').replace('```', '').strip()
         
         mcq_data = json.loads(content)
-        return [MCQuestion(**q) for q in mcq_data[:10]]  # Ensure max 10 questions
+        return [MCQuestion(**q) for q in mcq_data[:15]]  # Ensure max 15 questions
         
     except Exception as e:
         logger.error(f"Error generating MCQs: {str(e)}")
@@ -147,9 +147,9 @@ Make questions {difficulty} level - focus on {'basic concepts' if difficulty == 
         ]
 
 def generate_saqs(role: str, skills: List[str], difficulty: str) -> List[SAQuestion]:
-    """Generate 3 short answer questions"""
+    """Generate 5 short answer questions"""
     
-    prompt = f"""Generate 3 short answer questions for a {role} assessment.
+    prompt = f"""Generate 5 short answer questions for a {role} assessment.
 
 Skills to test: {', '.join(skills)}
 Difficulty: {difficulty}
@@ -187,7 +187,7 @@ Focus on {difficulty} scenarios - {'simple workplace situations' if difficulty =
             content = content.replace('```json', '').replace('```', '').strip()
         
         saq_data = json.loads(content)
-        return [SAQuestion(**q) for q in saq_data[:3]]
+        return [SAQuestion(**q) for q in saq_data[:5]]
         
     except Exception as e:
         logger.error(f"Error generating SAQs: {str(e)}")
@@ -261,9 +261,9 @@ Make it {difficulty} complexity - {'straightforward with clear solutions' if dif
         )
 
 def generate_aptitude_questions(role: str) -> List[AptitudeQuestion]:
-    """Generate 5 aptitude questions"""
+    """Generate 6-8 aptitude questions"""
     
-    prompt = f"""Generate 5 aptitude questions for a {role} role.
+    prompt = f"""Generate 6-8 aptitude questions for a {role} role.
 
 Focus on logical reasoning and problem-solving skills relevant to {role}.
 Avoid technical knowledge - test thinking ability.
@@ -365,7 +365,7 @@ def calculate_skill_coverage(mcqs: List[MCQuestion], saqs: List[SAQuestion],
 async def generate_role_assessment(request: GenerateAssessmentRequest) -> AssessmentResult:
     """
     Generate a complete role-based assessment synchronously.
-    Returns: 10 MCQs + 3 SAQs + 1 Case Study + 5 Aptitude Questions
+    Returns: 15 MCQs + 5 SAQs + 1 Case Study + 5 Aptitude Questions
     """
     
     try:
