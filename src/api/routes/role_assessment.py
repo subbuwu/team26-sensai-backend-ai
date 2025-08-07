@@ -1,18 +1,21 @@
 # src/api/routes/role_assessment.py
-
+from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
 from typing import List, Dict, Optional, Literal
 from pydantic import BaseModel, Field
 import json
 import uuid
 import openai
+import os
 from api.utils.logging import logger
 
+load_dotenv()
 router = APIRouter()
 
 # Initialize OpenAI client with custom configuration
-client = openai.OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),  # Get API key from environment variable
+api_key = os.getenv("OPENAI_API_KEY")
+client = openai.OpenAI( 
+    api_key = api_key,
     base_url="https://agent.dev.hyperverge.org"
 )
 
