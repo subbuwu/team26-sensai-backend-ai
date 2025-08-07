@@ -1,6 +1,6 @@
 # src/api/routes/role_assessment.py
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, status
 from typing import List, Dict, Optional, Literal
 from pydantic import BaseModel, Field
 import json
@@ -8,6 +8,16 @@ import uuid
 import openai
 import os
 from api.utils.logging import logger
+from api.db.role_assessment import (
+    save_assessment,
+    get_assessment,
+    list_assessments,
+    deploy_assessment_to_course,
+    undeploy_assessment_from_course,
+    get_course_assessments,
+    get_mentor_courses,
+)
+from api.db import get_new_db_connection
 
 load_dotenv()
 router = APIRouter()
@@ -20,7 +30,42 @@ client = openai.OpenAI(
 )
 
 # ============================================================================
-# SIMPLIFIED PYDANTIC MODELS
+# SIMPLE USER HELPER (for demo/testing)
+# ============================================================================
+
+async def get_default_user(user_id: str | None = None) -> dict:
+    """Get a default user for simple testing - replace with your logic"""
+    user_id = int(user_id or 1)  # Convert to int
+
+    async with get_new_db_connection() as conn:
+        cursor = await conn.execute("""
+            SELECT 
+                u.id,               
+                u.email,            
+                uo.org_id,          
+                uo.role,            
+                u.first_name        
+            FROM users u
+            LEFT JOIN user_organizations uo ON u.id = uo.user_id
+            WHERE u.id = ?
+            LIMIT 1;
+        """, (user_id,))
+        
+        user_row = await cursor.fetchone()
+        
+        if not user_row:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {
+            "id": user_row[0],
+            "email": user_row[1], 
+            "org_id": user_row[2],
+            "role": user_row[3],
+            "first_name": user_row[4],
+        }
+
+# ============================================================================
+# PYDANTIC MODELS
 # ============================================================================
 
 class GenerateAssessmentRequest(BaseModel):
@@ -76,9 +121,42 @@ class AssessmentResult(BaseModel):
     skill_coverage: List[SkillCoverage]
     total_questions: int
     estimated_duration_minutes: int
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    is_published: Optional[bool] = False
+
+class UpdateAssessmentRequest(BaseModel):
+    assessment_id: str
+    role_name: str
+    target_skills: List[str]
+    difficulty_level: str
+    mcqs: List[MCQuestion]
+    saqs: List[SAQuestion]
+    case_study: Optional[CaseStudy]
+    aptitude_questions: List[AptitudeQuestion]
+    skill_coverage: List[SkillCoverage]
+    total_questions: int
+    estimated_duration_minutes: int
+
+class DeployAssessmentRequest(BaseModel):
+    assessment_id: str
+    course_id: int
+
+class AssessmentListItem(BaseModel):
+    assessment_id: str
+    role_name: str
+    target_skills: List[str]
+    difficulty_level: str
+    total_questions: int
+    estimated_duration_minutes: int
+    created_by_email: str
+    created_at: str
+    updated_at: str
+    is_published: bool
+    deployed_courses_count: int
 
 # ============================================================================
-# AI GENERATION FUNCTIONS
+# AI GENERATION FUNCTIONS (keeping existing logic)
 # ============================================================================
 
 def generate_mcqs(role: str, skills: List[str], difficulty: str) -> List[MCQuestion]:
@@ -358,15 +436,19 @@ def calculate_skill_coverage(mcqs: List[MCQuestion], saqs: List[SAQuestion],
     return coverage
 
 # ============================================================================
-# MAIN GENERATE ENDPOINT - SIMPLIFIED
+# API ENDPOINTS
 # ============================================================================
 
 @router.post("/generate", response_model=AssessmentResult)
-async def generate_role_assessment(request: GenerateAssessmentRequest) -> AssessmentResult:
+async def generate_role_assessment(
+    request: GenerateAssessmentRequest
+) -> AssessmentResult:
     """
-    Generate a complete role-based assessment synchronously.
+    Generate a complete role-based assessment.
     Returns: 15 MCQs + 5 SAQs + 1 Case Study + 5 Aptitude Questions
     """
+    
+    current_user = await get_default_user()
     
     try:
         assessment_id = f"role_assessment_{uuid.uuid4().hex[:8]}"
@@ -407,6 +489,9 @@ async def generate_role_assessment(request: GenerateAssessmentRequest) -> Assess
             estimated_duration_minutes=60  # 1 hour estimate
         )
         
+        # Save to database
+        await save_assessment(result.dict(), current_user["org_id"], current_user["id"])
+        
         logger.info(f"Assessment generated successfully: {assessment_id}")
         logger.info(f"Generated: {len(mcqs)} MCQs, {len(saqs)} SAQs, 1 Case Study, {len(aptitude_questions)} Aptitude")
         
@@ -415,6 +500,137 @@ async def generate_role_assessment(request: GenerateAssessmentRequest) -> Assess
     except Exception as e:
         logger.error(f"Error generating assessment: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to generate assessment: {str(e)}")
+
+@router.put("/update", response_model=AssessmentResult)
+async def update_role_assessment(
+    request: UpdateAssessmentRequest
+) -> AssessmentResult:
+    """Update an existing assessment"""
+    
+    current_user = await get_default_user()
+    
+    try:
+        # Save updated assessment
+        await save_assessment(request.dict(), current_user["org_id"], current_user["id"])
+        
+        # Fetch and return updated assessment
+        updated = await get_assessment(request.assessment_id)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Assessment not found after update")
+        
+        return AssessmentResult(**updated)
+        
+    except Exception as e:
+        logger.error(f"Error updating assessment: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update assessment: {str(e)}")
+
+@router.get("/list/{user_id}", response_model=List[AssessmentListItem])
+async def list_role_assessments(user_id: str) -> List[AssessmentListItem]:
+    """List all assessments for the organization"""
+    
+    current_user = await get_default_user(user_id)
+    if current_user["role"] not in ["owner", "mentor", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action."
+        )
+    
+    try:
+        assessments = await list_assessments(current_user["org_id"], current_user["id"])
+        return [AssessmentListItem(**a) for a in assessments]
+        
+    except Exception as e:
+        logger.error(f"Error listing assessments: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list assessments: {str(e)}")
+
+@router.get("/{assessment_id}", response_model=AssessmentResult)
+async def get_role_assessment(
+    assessment_id: str
+) -> AssessmentResult:
+    """Get a specific assessment by ID"""
+    
+    current_user = await get_default_user()
+    
+    try:
+        assessment = await get_assessment(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+        
+        return AssessmentResult(**assessment)
+        
+    except Exception as e:
+        logger.error(f"Error getting assessment: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get assessment: {str(e)}")
+
+@router.post("/deploy")
+async def deploy_assessment(
+    request: DeployAssessmentRequest
+):
+    """Deploy an assessment to a course"""
+    
+    current_user = await get_default_user()
+    
+    try:
+        success = await deploy_assessment_to_course(
+            request.assessment_id, 
+            request.course_id, 
+            current_user["id"]
+        )
+        
+        if not success:
+            return {"message": "Assessment already deployed to this course"}
+        
+        return {"message": "Assessment deployed successfully"}
+        
+    except Exception as e:
+        logger.error(f"Error deploying assessment: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to deploy assessment: {str(e)}")
+
+@router.post("/undeploy")
+async def undeploy_assessment(
+    request: DeployAssessmentRequest
+):
+    """Undeploy an assessment from a course"""
+    
+    current_user = await get_default_user()
+    
+    try:
+        await undeploy_assessment_from_course(request.assessment_id, request.course_id)
+        return {"message": "Assessment undeployed successfully"}
+        
+    except Exception as e:
+        logger.error(f"Error undeploying assessment: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to undeploy assessment: {str(e)}")
+
+@router.get("/course/{course_id}/assessments")
+async def get_course_role_assessments(
+    course_id: int
+):
+    """Get all assessments deployed to a course"""
+    
+    current_user = await get_default_user()
+    
+    try:
+        assessments = await get_course_assessments(course_id)
+        return assessments
+        
+    except Exception as e:
+        logger.error(f"Error getting course assessments: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get course assessments: {str(e)}")
+
+@router.get("/mentor/courses")
+async def get_mentor_available_courses():
+    """Get courses available for mentor to deploy assessments"""
+    
+    current_user = await get_default_user()
+    
+    try:
+        courses = await get_mentor_courses(current_user["id"], current_user["org_id"])
+        return courses
+        
+    except Exception as e:
+        logger.error(f"Error getting mentor courses: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get mentor courses: {str(e)}")
 
 # ============================================================================
 # SIMPLE STATUS ENDPOINT (for frontend compatibility)

@@ -28,9 +28,10 @@ from api.config import (
     task_generation_jobs_table_name,
     org_api_keys_table_name,
     code_drafts_table_name,
+    
 )
 import logging
-
+from api.db.role_assessment import create_role_assessment_tables
 # Set up logging
 logger = logging.getLogger(__name__)
 
@@ -540,6 +541,8 @@ async def init_db():
             
             # Draft tables
             await create_code_drafts_table(cursor)
+            
+            await create_role_assessment_tables(cursor)
 
             await conn.commit()
             logger.info("All tables created successfully")
