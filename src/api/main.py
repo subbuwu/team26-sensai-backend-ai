@@ -22,7 +22,6 @@ from api.routes import (
     ai,
     scorecard,
     role_assessment,
-    assessment
 )
 from api.routes.ai import (
     resume_pending_task_generation_jobs,
@@ -120,7 +119,7 @@ app.include_router(code.router, prefix="/code", tags=["code"])
 app.include_router(hva.router, prefix="/hva", tags=["hva"])
 app.include_router(websocket_router, prefix="/ws", tags=["websockets"])
 app.include_router(role_assessment.router, prefix="/role_assessment", tags=["role_assessment"])
-app.include_router(assessment.router, prefix="/assessment", tags=["assessment"])
+
 
 
 @app.get("/health")
