@@ -1,6 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel
-from typing import List, Tuple, Optional, Dict, Literal
+from typing import List, Tuple, Optional, Dict, Literal,Any
 from datetime import datetime
 
 
@@ -705,3 +705,237 @@ class SaveCodeDraftRequest(BaseModel):
 class CodeDraft(BaseModel):
     id: int
     code: List[LanguageCodeDraft]
+
+
+# Assessment submission models
+class AssessmentStatus(str, Enum):
+    IN_PROGRESS = "in_progress"
+    SUBMITTED = "submitted" 
+    GRADED = "graded"
+
+class ResponseType(str, Enum):
+    TEXT = "text"
+    CODE = "code"
+    AUDIO = "audio"
+
+class GradedBy(str, Enum):
+    AI = "ai"
+    INSTRUCTOR = "instructor"
+    PEER = "peer"
+
+# Request models
+class StartAssessmentRequest(BaseModel):
+    task_id: int
+    cohort_id: Optional[int] = None
+    course_id: Optional[int] = None
+
+class SubmitQuestionRequest(BaseModel):
+    submission_id: int
+    question_id: int
+    user_response: str  # JSON string for complex responses
+    response_type: ResponseType = ResponseType.TEXT
+    time_spent_seconds: Optional[int] = 0
+
+class FinalizeAssessmentRequest(BaseModel):
+    submission_id: int
+    confirm_submission: bool = True
+
+# Response models
+class QuestionResponse(BaseModel):
+    id: int
+    submission_id: int
+    question_id: int
+    user_response: Optional[str]
+    user_response_type: ResponseType
+    ai_feedback: Optional[str]
+    score: float
+    max_score: float
+    is_correct: Optional[bool]
+    time_spent_seconds: int
+    attempt_count: int
+    submitted_at: Optional[datetime]
+    graded_at: Optional[datetime]
+    graded_by: GradedBy
+    scorecard_results: Optional[Dict[str, Any]]
+
+class AssessmentSubmission(BaseModel):
+    id: int
+    user_id: int
+    task_id: int
+    cohort_id: Optional[int]
+    course_id: Optional[int]
+    started_at: datetime
+    submitted_at: Optional[datetime]
+    time_spent_seconds: int
+    total_score: float
+    max_possible_score: float
+    percentage_score: float
+    status: AssessmentStatus
+    attempt_number: int
+    is_final_submission: bool
+    metadata: Optional[Dict[str, Any]]
+
+class AssessmentSubmissionWithResponses(AssessmentSubmission):
+    question_responses: List[QuestionResponse]
+    task_details: Optional[Dict[str, Any]]  # Task name, questions, etc.
+
+# Assessment taking models
+class AssessmentQuestion(BaseModel):
+    id: int
+    title: str
+    blocks: List[Dict[str, Any]]  # BlockNote content
+    type: str  # 'objective' or 'subjective'
+    input_type: str  # 'text', 'code', 'audio'
+    response_type: str  # 'chat', 'exam'
+    coding_languages: Optional[List[str]]
+    max_attempts: Optional[int]
+    is_feedback_shown: Optional[bool]
+    scorecard: Optional[Dict[str, Any]]
+    position: int
+
+class AssessmentTask(BaseModel):
+    id: int
+    title: str
+    type: str
+    questions: List[AssessmentQuestion]
+    total_questions: int
+    estimated_time_minutes: Optional[int]
+    instructions: Optional[str]
+    is_timed: bool = False
+    time_limit_minutes: Optional[int]
+
+class AssessmentSession(BaseModel):
+    submission: AssessmentSubmission
+    task: AssessmentTask
+    current_question_index: int = 0
+    progress_percentage: float = 0.0
+    can_navigate_freely: bool = True
+    saved_responses: Dict[int, str] = {}  # question_id -> response
+
+# Results and analytics models
+class QuestionAnalytics(BaseModel):
+    question_id: int
+    question_title: str
+    total_responses: int
+    correct_responses: int
+    average_score: float
+    average_time_seconds: int
+    difficulty_level: str  # 'easy', 'medium', 'hard'
+    common_mistakes: List[str]
+
+class AssessmentAnalytics(BaseModel):
+    task_id: int
+    task_title: str
+    total_submissions: int
+    avg_score: float
+    median_score: float
+    highest_score: float
+    lowest_score: float
+    avg_time_minutes: float
+    completion_rate: float
+    difficulty_rating: float
+    question_analytics: List[QuestionAnalytics]
+    score_distribution: Dict[str, int]  # score_range -> count
+    last_calculated: datetime
+
+class LeaderboardEntry(BaseModel):
+    id: int
+    user_id: int
+    user_name: str
+    user_email: str
+    score: float
+    max_score: float
+    percentage: float
+    rank_position: int
+    submission_id: int
+    achievement_badges: List[str]
+    submitted_at: Optional[datetime]
+    time_spent_minutes: float
+
+class AssessmentLeaderboard(BaseModel):
+    task_id: int
+    task_title: str
+    cohort_id: Optional[int]
+    cohort_name: Optional[str]
+    entries: List[LeaderboardEntry]
+    total_participants: int
+    avg_score: float
+    generated_at: datetime
+
+# Student results models
+class StudentQuestionResult(BaseModel):
+    question_id: int
+    question_title: str
+    user_response: str
+    correct_answer: Optional[str]
+    ai_feedback: str
+    score: float
+    max_score: float
+    percentage: float
+    is_correct: Optional[bool]
+    time_spent_seconds: int
+    scorecard_breakdown: Optional[Dict[str, Any]]
+
+class StudentAssessmentResult(BaseModel):
+    submission_id: int
+    task_title: str
+    total_score: float
+    max_possible_score: float
+    percentage_score: float
+    grade_letter: str  # A, B, C, D, F
+    rank_in_cohort: Optional[int]
+    total_cohort_participants: Optional[int]
+    time_spent_minutes: float
+    submitted_at: datetime
+    question_results: List[StudentQuestionResult]
+    overall_feedback: str
+    areas_for_improvement: List[str]
+    strengths: List[str]
+
+# Instructor dashboard models
+class StudentSummary(BaseModel):
+    user_id: int
+    name: str
+    email: str
+    submission_id: Optional[int]
+    status: str  # 'not_started', 'in_progress', 'submitted'
+    score: Optional[float]
+    percentage: Optional[float]
+    time_spent_minutes: Optional[float]
+    submitted_at: Optional[datetime]
+    attempt_number: int
+
+class InstructorAssessmentOverview(BaseModel):
+    task_id: int
+    task_title: str
+    cohort_id: int
+    cohort_name: str
+    total_students: int
+    submitted_count: int
+    in_progress_count: int
+    not_started_count: int
+    avg_score: float
+    avg_time_minutes: float
+    students: List[StudentSummary]
+    analytics: AssessmentAnalytics
+
+# Achievement and gamification models
+class Achievement(BaseModel):
+    id: str
+    name: str
+    description: str
+    icon: str
+    criteria: Dict[str, Any]
+    rarity: str  # 'common', 'rare', 'epic', 'legendary'
+
+class StudentProgress(BaseModel):
+    user_id: int
+    total_assessments_taken: int
+    total_assessments_passed: int
+    average_score: float
+    total_time_spent_minutes: float
+    current_streak: int
+    longest_streak: int
+    achievements: List[Achievement]
+    next_achievement: Optional[Achievement]
+    progress_to_next: float

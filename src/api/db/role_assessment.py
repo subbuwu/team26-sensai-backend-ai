@@ -15,7 +15,7 @@ from api.utils.logging import logger
 
 # Define table names
 role_assessments_table_name = "role_assessments"
-role_assessment_questions_table_name = "role_assessment_questions"
+role_assessment_questions_table_name = "role_assessment_questions" 
 course_assessments_table_name = "course_assessments"
 
 async def create_role_assessment_tables(cursor):
@@ -437,3 +437,69 @@ async def get_mentor_courses(user_id: int, org_id: int) -> List[Dict]:
     
     return [{"id": c[0], "name": c[1]} for c in courses]
 
+
+
+async def delete_assessment(assessment_id: str) -> bool:
+    """Delete a role assessment and its related data (including all associated questions)"""
+    async with get_new_db_connection() as conn:
+        try:
+            cursor = await conn.cursor()
+
+            # Check if the assessment exists
+            existing = await cursor.execute(
+                f"SELECT id FROM {role_assessments_table_name} WHERE assessment_id = ?",
+                (assessment_id,)
+            )
+            assessment_record = await existing.fetchone()
+
+            if not assessment_record:
+                logger.warning(f"Assessment {assessment_id} not found")
+                return False  # Nothing to delete
+
+            # Get count of questions that will be deleted (for logging)
+            question_count = await cursor.execute(
+                f"SELECT COUNT(*) FROM {role_assessment_questions_table_name} WHERE assessment_id = ?",
+                (assessment_id,)
+            )
+            count_result = await question_count.fetchone()
+            question_count_num = count_result[0] if count_result else 0
+
+            logger.info(f"Deleting assessment {assessment_id} with {question_count_num} questions")
+
+            # Delete all questions first (child records)
+            await cursor.execute(
+                f"DELETE FROM {role_assessment_questions_table_name} WHERE assessment_id = ?",
+                (assessment_id,)
+            )
+            
+            logger.info(f"Deleted {question_count_num} questions for assessment {assessment_id}")
+
+            # Delete course deployments (related records)
+            course_deployments = await cursor.execute(
+                f"SELECT COUNT(*) FROM {course_assessments_table_name} WHERE assessment_id = ?",
+                (assessment_id,)
+            )
+            deployment_count_result = await course_deployments.fetchone()
+            deployment_count = deployment_count_result[0] if deployment_count_result else 0
+
+            if deployment_count > 0:
+                await cursor.execute(
+                    f"DELETE FROM {course_assessments_table_name} WHERE assessment_id = ?",
+                    (assessment_id,)
+                )
+                logger.info(f"Deleted {deployment_count} course deployments for assessment {assessment_id}")
+
+            # Finally, delete the main assessment record (parent record)
+            await cursor.execute(
+                f"DELETE FROM {role_assessments_table_name} WHERE assessment_id = ?",
+                (assessment_id,)
+            )
+
+            await conn.commit()
+            logger.info(f"Successfully deleted assessment {assessment_id}")
+            return True
+
+        except Exception as e:
+            await conn.rollback()
+            logger.error(f"Error deleting assessment {assessment_id}: {str(e)}")
+            raise e

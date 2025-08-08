@@ -16,7 +16,8 @@ from api.db.role_assessment import (
     undeploy_assessment_from_course,
     get_course_assessments,
     get_mentor_courses,
-    get_courses_for_assessment
+    get_courses_for_assessment,
+    delete_assessment
 )
 from api.db import get_new_db_connection
 
@@ -679,3 +680,35 @@ async def deploy_assessment(request: DeployAssessmentRequest):
     except Exception as e:
         logger.error(f"Error deploying assessment: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to deploy assessment: {str(e)}")
+
+@router.delete("/{assessment_id}")
+async def delete_role_assessment(
+    assessment_id: str,
+    user_id: str = None
+) -> dict:
+    """Delete a role assessment and all its questions"""
+    
+    current_user = await get_default_user(user_id)
+    if current_user["role"] not in ["owner", "mentor", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to delete assessments."
+        )
+    
+    try:
+        success = await delete_assessment(assessment_id)
+        
+        if not success:
+            raise HTTPException(
+                status_code=404, 
+                detail="Assessment not found"
+            )
+        
+        return {"message": f"Assessment {assessment_id} deleted successfully"}
+        
+    except Exception as e:
+        logger.error(f"Error deleting assessment {assessment_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to delete assessment: {str(e)}"
+        )
